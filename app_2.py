@@ -46,7 +46,7 @@ st.markdown("""
     color: #A1A1AA;
 }
 
-/* 상태 알림 카드: 오직 보류(적색)와 정상(녹색)에만 제한적 사용 */
+/* 상태 알림 카드: 보류(적색) 및 정상(녹색) */
 .alert-hold {
     background-color: #450A0A;
     border: 1px solid #DC2626;
@@ -68,7 +68,7 @@ st.markdown("""
     margin-bottom: 12px;
 }
 
-/* 임상 분석 사유 카드: 주황색 제거 후 차분한 회색조 적용 */
+/* 임상 분석 사유 카드 */
 .reason-card {
     background-color: #18181B;
     border-left: 3px solid #71717A;
@@ -84,7 +84,7 @@ st.markdown("""
     margin-bottom: 12px;
 }
 
-/* 버튼: 불필요한 원색 배제 */
+/* 버튼 스타일 */
 div.stButton > button {
     width: 100% !important;
     min-height: 44px !important;
@@ -131,26 +131,60 @@ div.stButton > button:hover {
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 2. 이미지 파일 탐색 함수 ('2.real' 및 '2. real' 양방향 호환)
+# 2. 이미지 파일 탐색 함수 (루트/하위 경로 및 확장자 자동 매칭)
 # ---------------------------------------------------------
-SAMPLE_DIR = "sample_xrays"
-os.makedirs(SAMPLE_DIR, exist_ok=True)
-
 def find_case_image(target_name):
+    """
+    GitHub 저장소 루트 및 sample_xrays 하위 폴더의 실제 이미지를
+    확장자(.jpeg, .png, .jpg)와 공백 차이에 구애받지 않고 탐색합니다.
+    """
+    # 1. 탐색 대상 경로 목록
+    base_dir = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else os.getcwd()
+    search_dirs = [
+        base_dir,
+        os.getcwd(),
+        os.path.join(base_dir, "sample_xrays"),
+        os.path.join(os.getcwd(), "sample_xrays"),
+        "sample_xrays"
+    ]
+
+    # 2. 파일명 후보군 (2.real <-> 2. real 양방향 호환)
     candidates = [target_name]
-    if target_name == "2.real":
-        candidates.append("2. real")
-    elif target_name == "2. real":
-        candidates.append("2.real")
+    if " " in target_name:
+        candidates.append(target_name.replace(" ", ""))
+    else:
+        candidates.append(target_name.replace(".", ". "))
 
-    for cand in candidates:
-        for ext in [".jpg", ".png", ".jpeg", ".JPG", ".PNG"]:
-            p = os.path.join(SAMPLE_DIR, cand + ext)
-            if os.path.exists(p):
-                return p
+    extensions = [".jpeg", ".png", ".jpg", ".JPEG", ".PNG", ".JPG"]
 
-    # 파일 미존재 시 무채색 팬텀 생성
-    dummy_path = os.path.join(SAMPLE_DIR, f"{target_name}_temp.jpg")
+    # 3. 정확한 파일 매칭 탐색
+    for d in search_dirs:
+        if not os.path.exists(d):
+            continue
+        for cand in candidates:
+            for ext in extensions:
+                p = os.path.join(d, cand + ext)
+                if os.path.exists(p):
+                    return p
+
+    # 4. 키워드 기반 유연한 파일 매칭 (접두어 매칭)
+    clean_target = target_name.replace(" ", "").lower()
+    for d in search_dirs:
+        if not os.path.exists(d):
+            continue
+        try:
+            for f in os.listdir(d):
+                f_clean = f.replace(" ", "").lower()
+                if any(f_clean.endswith(ext.lower()) for ext in extensions):
+                    if clean_target in f_clean and not f_clean.endswith("_temp.jpg"):
+                        return os.path.join(d, f)
+        except Exception:
+            pass
+
+    # 5. 파일이 전혀 없을 경우에만 임시 대체 팬텀 생성
+    dummy_dir = os.path.join(base_dir, "sample_xrays")
+    os.makedirs(dummy_dir, exist_ok=True)
+    dummy_path = os.path.join(dummy_dir, f"{target_name}_temp.jpg")
     if not os.path.exists(dummy_path):
         img = Image.new("RGB", (300, 300), color=(24, 24, 27))
         d = ImageDraw.Draw(img)
@@ -213,7 +247,7 @@ with col_img2:
     st.markdown("##### 최근 영상 [B]")
     st.image(img_b, caption="금일 촬영 신규 영상", use_container_width=True)
 
-# 검사 정보: 글자색을 검정색(#000000)으로 적용
+# 검사 정보 표시
 st.markdown(
     """
 <div style="font-size: 1.05rem; font-weight: 700; margin-top: 10px; margin-bottom: 8px; color: #000000;">
@@ -226,7 +260,7 @@ st.markdown(
 is_hold = display_score < threshold
 
 # ---------------------------------------------------------
-# 5. AI 에이전트 판정 결과 (보류/정상 상태만 컬러 강조)
+# 5. AI 에이전트 판정 결과 (보류/정상 상태 컬러 안내)
 # ---------------------------------------------------------
 st.markdown("---")
 st.subheader("실시간 AI 판정 결과")
@@ -254,7 +288,7 @@ if is_hold:
     </div>
     """, unsafe_allow_html=True)
     
-    # 사유 분석: 단백한 모노톤 텍스트
+    # 사유 분석
     st.markdown("""
     <div class="reason-card">
         <b>📋 AI 에이전트 해부학적 불일치 분석 사유:</b><br>
@@ -287,7 +321,7 @@ else:
     """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 6. 하단 PACS Worklist 실시간 연동 (단백한 흑백 테이블)
+# 6. 하단 PACS Worklist 실시간 연동 (모노톤 테이블)
 # ---------------------------------------------------------
 st.markdown("---")
 st.subheader("PACS 워크리스트 연동 상태")
